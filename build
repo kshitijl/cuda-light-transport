@@ -1,1 +1,1 @@
-nvcc hello.cu -lGL -lglut
+nvcc hello.cu -lGL -lglut -lGLU
