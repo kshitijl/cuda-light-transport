@@ -12,27 +12,26 @@ GLuint mtexture;
 void render(){
   glClear(GL_COLOR_BUFFER_BIT);
 
-  //glMatrixMode(GL_MODELVIEW);
-  //glLoadIdentity();
-  //glRotatef((clock() / 250.0) , 0, 0, 1);
+  glMatrixMode(GL_MODELVIEW);
+  glLoadIdentity();
+
+  int tt = clock() % 1000000;
+  float angle = 360.0*tt/1000000;
+  glRotatef(angle, 0, 0, 1);
 
   glEnable(GL_TEXTURE_2D); // you should use shader, but for an example fixed pipeline is ok ;)
   glBindTexture(GL_TEXTURE_2D, mtexture);
 
-  glBegin(GL_TRIANGLES);
-    glTexCoord2f(0.5, 1.0);    glVertex2f(-3, 3);
-    glTexCoord2f(0.0, 0.0);    glVertex2f(-3, 0);
-    glTexCoord2f(1.0, 0.0);    glVertex2f(0, 0);
-
-    glTexCoord2f(4, 8);        glVertex2f(3, 3);
-    glTexCoord2f(0.0, 0.0);    glVertex2f(0, 0);
-    glTexCoord2f(8, 0.0);      glVertex2f(3, 0);
-
-    glTexCoord2f(5, 5);        glVertex2f(0, 0);
-    glTexCoord2f(0.0, 0.0);    glVertex2f(-1.5, -3);
-    glTexCoord2f(4, 0.0);      glVertex2f(1.5, -3);
+  float x = 0.8;
+  glBegin(GL_QUADS);
+    glTexCoord2f(0.0, 0.0); glVertex3f(-x, -x, 0.5);
+    glTexCoord2f(1.0, 0.0); glVertex3f(x, -x, 0.5);
+    glTexCoord2f(1.0, 1.0); glVertex3f(x, x, 0.5);
+    glTexCoord2f(0.0, 1.0); glVertex3f(-x, x, 0.5);
   glEnd();
-  glFlush();  
+  
+  glFlush();
+  glutPostRedisplay();  
 }
 
 int main(int argc, char **argv) {
@@ -52,10 +51,10 @@ GLubyte textureData[][3] = {
   glViewport(0, 0, width, height);
   glMatrixMode(GL_PROJECTION);
   glLoadIdentity();
-  gluPerspective(80, GLfloat(width)/height, 1, 40);
+
   glMatrixMode(GL_MODELVIEW);
   glLoadIdentity();
-  gluLookAt(2, -1, 5, 0, 0, 0, 0, 1, 0);
+
   glEnable(GL_TEXTURE_2D);
   glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
