@@ -1,1 +1,2 @@
-nvcc hello.cu -lGL -lglut -lGLU
+#!/bin/bash
+nvcc -std=c++11 hello.cu -lGL -lglut -lGLU
