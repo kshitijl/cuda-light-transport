@@ -1,6 +1,8 @@
 #include "simple-interop.hxx"
 #include "helper_math.h"
 
+#include <memory>
+
 const float tiny = 1e-5;
 
 struct ray_t {
@@ -94,7 +96,7 @@ __global__ void draw_circle(uchar3 *image, int width, int height, float t) {
   }
 }
 
-simple_interop_t *interop;
+std::shared_ptr<simple_interop_t> interop;
 
 void render(){
   unsigned int width = interop->width, height = interop->height;
@@ -117,8 +119,7 @@ int main(int argc, char **argv) {
   glutInitWindowSize(2000, 2000);
   glutCreateWindow("Render with CUDA");
 
-  simple_interop_t main_interop(1000,1000);
-  interop = &main_interop;
+  interop.reset(new simple_interop_t(1000,1000));
 
   glutDisplayFunc(render);
   glutMainLoop();
