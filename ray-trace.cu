@@ -3,6 +3,9 @@
 
 #include <memory>
 
+#include <moderngpu/transform.hxx>
+#include <moderngpu/memory.hxx>
+
 const float tiny = 1e-5;
 
 struct ray_t {
@@ -16,7 +19,7 @@ struct intersection_result_t {
   float3 surface_normal;
 };
 
-struct sphere_t {
+struct sphere_t { 
   float3 center;
   float radius;
   
@@ -49,12 +52,8 @@ struct sphere_t {
 const __device__ float3 eye{0,0,0};
 const __device__ float3 light{-5, -5, 0.2};
 
-const __device__ int nspheres = 2;
-
-__global__ void draw_circle(uchar3 *image, int width, int height, float t) {
-  const sphere_t spheres[] = {sphere_t{float3{0.1, 0.1, 3}, 1.1},
-                              sphere_t{float3{-0.8+t, -0.5, 1.8}, 0.25}};
-  
+__global__ void ray_trace(uchar3 *image, uint width, uint height,
+                          const sphere_t* spheres, int nspheres) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
   int y = blockIdx.y * blockDim.y + threadIdx.y;
 
@@ -92,20 +91,46 @@ __global__ void draw_circle(uchar3 *image, int width, int height, float t) {
       answer = 255*shading;
     }
     int idx = y*width + x;
-    image[idx] = uchar3{answer,0,0};
+    image[idx] = uchar3{answer,answer,answer};
   }
 }
 
-std::shared_ptr<simple_interop_t> interop;
+struct raytracer_t {
+  mgpu::standard_context_t context;
+  mgpu::mem_t<sphere_t> geometry;
+  
+  raytracer_t() {
+  }
+  
+  void draw_scene(uchar3 *image_out, uint width, uint height) {
+    float tt = float(clock())/CLOCKS_PER_SEC;
 
-void render(){
-  unsigned int width = interop->width, height = interop->height;
+    geometry = mgpu::to_mem(std::vector<sphere_t>{
+        sphere_t{float3{0.1, 0.1, 3}, 1.1},
+          sphere_t{float3{sin(tt-0.8f)-0.4f, -0.5, 1.8}, 0.25}},
+      context);    
+  
+    dim3 grid_dim{width/32 + (width % 32 > 0), height/32 + (height % 32 > 0)};
+    dim3 block_dim{32,32};
 
-  float tt = float(clock())/CLOCKS_PER_SEC;
-  interop->cuda_render([=](uchar3 *d_textureBufferData) {
-      dim3 grid_dim{width/32 + (width % 32 > 0), height/32 + (height % 32 > 0)};
-      dim3 block_dim{32,32};
-      draw_circle<<<grid_dim, block_dim>>>(d_textureBufferData, width, height, sin(tt)+0.4);
+    ray_trace<<<grid_dim, block_dim>>>(image_out, width, height,
+                                       geometry.data(),
+                                       geometry.size());
+  }
+};
+
+struct global_state_t {
+  simple_interop_t interop;
+  raytracer_t raytracer;
+};
+
+global_state_t* global_state;
+
+void render() {
+  unsigned int width = global_state->interop.width, height = global_state->interop.height;
+
+  global_state->interop.cuda_render([=](uchar3 *output) {
+      global_state->raytracer.draw_scene(output, width, height);
     });
 
   
@@ -119,9 +144,11 @@ int main(int argc, char **argv) {
   glutInitWindowSize(2000, 2000);
   glutCreateWindow("Render with CUDA");
 
-  interop.reset(new simple_interop_t(1000,1000));
-
+  global_state_t main_global_state{simple_interop_t(1000,1000)};
+  global_state = &main_global_state;
+  
   glutDisplayFunc(render);
   glutMainLoop();
+
   return 0;
 }

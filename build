@@ -1,2 +1,2 @@
 #!/bin/bash
-nvcc -std=c++11 ray-trace.cu -lGL -lglut -lGLU
+nvcc -std=c++11 ray-trace.cu -lGL -lglut -lGLU -I./moderngpu/src --expt-extended-lambda -use_fast_math
