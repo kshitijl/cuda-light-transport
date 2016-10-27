@@ -92,7 +92,7 @@ __device__ float3 sample_cosine_weighted_direction(float3 normal, float r1, floa
 
 const __device__ float3 eye{0,0,0};
 
-__global__ void draw_circle(float3 *image, int width, int height, int nsamples) {
+__global__ void draw_circle(char *image, int width, int height, uint iteration) {
   const int nspheres = 3;
   const sphere_t spheres[] = { sphere_t{float3{-5, -5, 0.2f}, 2.2, float3{1.0,0.0,0.0}},
                                sphere_t{float3{-0.5, -0.5, 1.8}, 0.25, float3{0.0,0.0,0.0}},                               
@@ -102,7 +102,6 @@ __global__ void draw_circle(float3 *image, int width, int height, int nsamples) 
   
   uint x = blockIdx.x * blockDim.x + threadIdx.x;
   uint y = blockIdx.y * blockDim.y + threadIdx.y;
-  uint sample = blockIdx.z * blockDim.z + threadIdx.z;
 
   if(x < width && y < height) {
     float3 direction = float3{float(x)/width-float(0.5), float(y)/float(height)-float(0.5), 1} - eye;
@@ -126,7 +125,7 @@ __global__ void draw_circle(float3 *image, int width, int height, int nsamples) 
       }
     
       if(best.distance < 1e9) {
-        float2 random_uniforms = gpu_random::uniforms(uint4{x,y,sample,0},
+        float2 random_uniforms = gpu_random::uniforms(uint4{x,y,iteration,0},
                                                       uint2{bounces,0});
         float3 new_dir = sample_cosine_weighted_direction(best.surface_normal,
                                                           random_uniforms.x,
@@ -141,30 +140,10 @@ __global__ void draw_circle(float3 *image, int width, int height, int nsamples) 
       }
     }
 
-    int idx = (y*width + x)*nsamples + sample;
-    image[idx] = accumulator;
-  }
-}
-
-__global__ void combine_samples_device(float3* images, char* final,
-                                       int w, int h, int niters) {
-  uint x = blockIdx.x * blockDim.x + threadIdx.x;
-  uint y = blockIdx.y * blockDim.y + threadIdx.y;
-
-  if(x < w && y < h) {
-    float3 answer{0,0,0};
-    
-    for(int sample = 0; sample < niters; ++sample) {
-      int idx = (y*w + h)*niters + sample;
-      answer += images[idx];
-    }
-
-    answer /= 10;
-    
-    int idx = 3*(y*w + h);
-    final[idx] = answer.x*255;
-    final[idx+1] = answer.y*255;
-    final[idx+2] = answer.z*255;
+    int idx = 3*(y*width + x);
+    image[idx] += accumulator.x*100;
+    image[idx+1] += accumulator.y*100;
+    image[idx+2] += accumulator.z*100;
   }
 }
 
@@ -175,33 +154,24 @@ void write_ppm(const char * filename, int width, int height, char * data) {
   fclose(fp);
 }
 
-void combine_samples(float3* images, char* final, int w, int h, int niters) {
-  dim3 dimBlock(32,32);
-  dim3 dimGrid(w/32 + (w%32 > 0), h/32 + (h%32 > 0));
-  combine_samples_device<<<dimGrid, dimBlock>>>(images, final, w, h, niters);
-}
-
 int main(int argc, char **argv) {
   assert(argc == 2);
   int niters = std::atoi(argv[1]);
   
-  int w=1000,h=1000;
+  int w=4000,h=4000;
 
   char *a_h, *a_d;
-  float3 *images;
 
   int size = w*h*3*sizeof(char);
   cudaMalloc((void **)&a_d, size);
-  cudaMalloc((void **)&images, w*h*niters*sizeof(float3));
-  
-  a_h = (char *)malloc(size);
+  a_h = (char *)malloc(size);  
 
-  dim3 dimBlock(16,16,4);
-  dim3 dimGrid(w/16 + (w%16 > 0), h/16 + (h%16 > 0),niters/4 + (niters%4>0));
-  cudaMemset(images, 0, size*niters);
-  draw_circle<<<dimGrid, dimBlock>>>(images, w, h, niters);
-
-  combine_samples(images, a_d, w, h, niters);
+  dim3 dimBlock(32,32);
+  dim3 dimGrid(w/32 + (w%32 > 0), h/32 + (h%32 > 0));
+  cudaMemset(a_d, 0, w*h*3*sizeof(char));
+  for(int ii = 0; ii < niters; ++ii) {
+    draw_circle<<<dimGrid, dimBlock>>>(a_d, w, h, ii);
+  }
   cudaMemcpy(a_h, a_d, size, cudaMemcpyDeviceToHost);
   cudaDeviceSynchronize();
 
