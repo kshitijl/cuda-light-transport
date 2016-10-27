@@ -1,7 +1,4 @@
-#include <stdio.h>
-#include <string>
-
-#include <cuda.h>
+#include "simple-interop.hxx"
 #include "helper_math.h"
 
 const float tiny = 1e-5;
@@ -52,7 +49,7 @@ const __device__ float3 light{-5, -5, 0.2};
 
 const __device__ int nspheres = 2;
 
-__global__ void draw_circle(char *image, int width, int height, float t) {
+__global__ void draw_circle(uchar3 *image, int width, int height, float t) {
   const sphere_t spheres[] = {sphere_t{float3{0.1, 0.1, 3}, 1.1},
                               sphere_t{float3{-0.8+t, -0.5, 1.8}, 0.25}};
   
@@ -64,7 +61,7 @@ __global__ void draw_circle(char *image, int width, int height, float t) {
     
     ray_t ray{eye, direction/sqrt(dot(direction,direction))};
 
-    int answer = 10;
+    unsigned char answer = 10;
 
     intersection_result_t best{1e10};
     
@@ -92,41 +89,38 @@ __global__ void draw_circle(char *image, int width, int height, float t) {
       
       answer = 255*shading;
     }
-    int idx = 3*(y*width + x);
-    image[idx] = answer;
-    image[idx+1] = 0;
-    image[idx+2] = 0;
+    int idx = y*width + x;
+    image[idx] = uchar3{answer,0,0};
   }
 }
 
-void write_ppm(const char * filename, int width, int height, char * data) {
-  FILE *fp = fopen(filename, "wb");
-  fprintf(fp, "P6\n%d %d\n255\n", width, height);
-  fwrite(data, width*height*3, 1, fp);
-  fclose(fp);
-}
+simple_interop_t *interop;
 
-int main(void) {
-  int w=4000,h=4000;
+void render(){
+  unsigned int width = interop->width, height = interop->height;
 
-  char *a_h, *a_d;
+  float tt = float(clock())/CLOCKS_PER_SEC;
+  interop->cuda_render([=](uchar3 *d_textureBufferData) {
+      dim3 grid_dim{width/32 + (width % 32 > 0), height/32 + (height % 32 > 0)};
+      dim3 block_dim{32,32};
+      draw_circle<<<grid_dim, block_dim>>>(d_textureBufferData, width, height, sin(tt)+0.4);
+    });
 
-  int size = w*h*3*sizeof(char);
-  cudaMalloc((void **)&a_d, size);
-  a_h = (char *)malloc(size);  
-
-  for(int ii = 0; ii < 100; ++ii) {
-    dim3 dimBlock(32,32);
-    dim3 dimGrid(w/32 + (w%32 > 0), h/32 + (h%32 > 0));
-    draw_circle<<<dimGrid, dimBlock>>>(a_d, w, h, float(ii)/50);
-    cudaMemcpy(a_h, a_d, size, cudaMemcpyDeviceToHost);
-    cudaDeviceSynchronize();
-
-    write_ppm(("circle." + std::to_string(ii)+ ".ppm").c_str(), w, h, a_h);
-  }
   
-  cudaFree(a_d);
-  free(a_h);
+  glFlush();
+  glutPostRedisplay();  
+}
 
+int main(int argc, char **argv) {
+  glutInit(&argc, argv);
+  glutInitDisplayMode(GLUT_SINGLE | GLUT_RGB);
+  glutInitWindowSize(2000, 2000);
+  glutCreateWindow("Render with CUDA");
+
+  simple_interop_t main_interop(1000,1000);
+  interop = &main_interop;
+
+  glutDisplayFunc(render);
+  glutMainLoop();
   return 0;
 }
