@@ -17,16 +17,16 @@
 #include <curand_normal.h>
 
 namespace gpu_random {
-__device__ float2 uniforms(uint4 counter, uint2 key) {
-  float2 answer;
+  __device__ float2 uniforms(uint4 counter, uint2 key) {
+    float2 answer;
   
-  uint4 result = curand_Philox4x32_10(counter, key);
+    uint4 result = curand_Philox4x32_10(counter, key);
 
-  answer.x = _curand_uniform(result.x);
-  answer.y = _curand_uniform(result.y);
+    answer.x = _curand_uniform(result.x);
+    answer.y = _curand_uniform(result.y);
 
-  return answer;
-}
+    return answer;
+  }
 }
 
 const float tiny = 1e-5;
@@ -152,23 +152,16 @@ __global__ void ray_trace(float3 *image, uint width, uint height,
 }
 
 __global__ void float3_to_uchar3(float3* img_in, uchar3* img_out,
-                                 uint width, uint height, uint nsamples) {
+                                 uint width, uint height) {
   uint x = blockIdx.x * blockDim.x + threadIdx.x;
   uint y = blockIdx.y * blockDim.y + threadIdx.y;
 
   if(x < width && y < height) {
-    float3 accumulator{0,0,0};
-    for(int ii = 0; ii < nsamples; ++ii) {
-      int idx = (y*width + x)*nsamples + ii;
-      accumulator += img_in[idx];
-    }
-
-    float3 p = 255*clamp(accumulator,0,1);
-
-    int idx = y*width + x;
+    int idx = y*width + x;    
+    float3 p = 255*clamp(img_in[idx],0,1);
     img_out[idx] = uchar3{uchar(p.x),
-                        uchar(p.y),
-                        uchar(p.z)};
+                          uchar(p.y),
+                          uchar(p.z)};
   }  
 }
 
@@ -220,7 +213,7 @@ struct raytracer_t {
                     context);
 
     float3_to_uchar3<<<grid_dim, block_dim>>>(accum_buffer.data(), image_out,
-                                              width, height, 1);
+                                              width, height);
     
   }
 };
