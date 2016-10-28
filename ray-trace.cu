@@ -60,14 +60,14 @@ struct sphere_t {
       return intersection_result_t{-1};
 
     float3 point = ray.origin + closest*ray.direction;
-    float3 normal = point - center;
+    float3 normal = (point - center)/radius;
 
     if(radius < 100)
       normal = -normal;
     
     return intersection_result_t{closest,
         point,
-        normalize(-normal)};
+        -normal};
   }  
 };
 
@@ -87,13 +87,11 @@ __device__ float3 sample_cosine_weighted_direction(float3 normal, float r1, floa
   else
     h.z = 1.0;
 
-  float3 x = cross(h,y);
-  x /= sqrt(dot(x,x));
-  float3 z = cross(x, y);
-  z /= sqrt(dot(z,z));
+  float3 x = normalize(cross(h,y));
+  float3 z = normalize(cross(x, y));
 
   float3 dir = xs*x + ys*y + zs*z;
-  return dir/sqrt(dot(dir,dir));
+  return normalize(dir);
 }
 
 const __device__ float3 eye{50,52,295.6};
@@ -107,17 +105,17 @@ __global__ void ray_trace(float3 *image, uint width, uint height,
   uint sample = blockIdx.z * blockDim.z + threadIdx.z;
 
   if(x < width && y < height) {
-    float3 camdir = normalize(float3{0,-0.042612,-1});
+    float3 camdir = normalize(float3{sin(time)/9,-0.042612,-1});
     float3 cx{width*0.5135f/height}, cy = normalize(cross(cx, camdir))*0.5135;
-    float3 direction = cx*( x/width ) +
-      cy * (y/height) + camdir;
+    float3 direction = cx*( (x+sin(time))/width - 0.5) +
+      cy * ( (y+cos(time))/height - 0.5) + camdir;
       
-    ray_t ray{eye + direction*(140+tt), normalize(direction)};
+    ray_t ray{eye + direction*(140), normalize(direction)};
 
     float3 accumulator{0,0,0}, mask{1,1,1};
 
-    for(uint bounces = 0; bounces < 15; ++bounces) {
-      intersection_result_t best{1e10};
+    for(uint bounces = 0; bounces < 2; ++bounces) {
+      intersection_result_t best{1e150};
       int best_sphere_i = 0;
     
       for(int ii = 0; ii < nspheres; ++ii) {
@@ -130,7 +128,7 @@ __global__ void ray_trace(float3 *image, uint width, uint height,
         }
       }
     
-      if(best.distance < 1e9) {
+      if(best.distance < 1e150) {
         float2 random_uniforms = gpu_random::uniforms(uint4{x,y,sample,0},
                                                       uint2{bounces,0});
         float3 new_dir = sample_cosine_weighted_direction(best.surface_normal,
@@ -139,7 +137,7 @@ __global__ void ray_trace(float3 *image, uint width, uint height,
         ray = ray_t{best.intersection_point, new_dir};
 
         accumulator += mask*spheres[best_sphere_i].emittance;
-        mask *= 0.9 * spheres[best_sphere_i].color;
+        mask *= spheres[best_sphere_i].color;
       }
       else {
         break;
