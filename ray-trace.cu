@@ -100,7 +100,7 @@ __device__ float3 sample_cosine_weighted_direction(float3 normal, float r1, floa
 
 const __device__ float3 eye{0,0,0};
 
-__global__ void ray_trace(uchar3 *image, uint width, uint height,
+__global__ void ray_trace(float3 *image, uint width, uint height,
                           unsigned int iteration,
                           const sphere_t* spheres, int nspheres) {
   uint x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -145,20 +145,33 @@ __global__ void ray_trace(uchar3 *image, uint width, uint height,
 
     int idx = (y*width + x);
 
-    uchar3 prev = image[idx];
-
-    image[idx] = uchar3{uchar(100*accumulator.x) + prev.x,
-                        uchar(100*accumulator.y) + prev.y,
-                        uchar(100*accumulator.z) + prev.z};
+    image[idx] += accumulator/2;
   }
 }
 
+__global__ void float3_to_uchar3(float3* img_in, uchar3* img_out,
+                                 uint width, uint height) {
+  uint x = blockIdx.x * blockDim.x + threadIdx.x;
+  uint y = blockIdx.y * blockDim.y + threadIdx.y;
+
+  if(x < width && y < height) {
+    int idx = y*width + x;
+
+    float3 p = 255*clamp(img_in[idx],0,1);
+    img_out[idx] = uchar3{uchar(p.x),
+                        uchar(p.y),
+                        uchar(p.z)};
+  }  
+}
+
+using uint = unsigned int;
 
 struct raytracer_t {
   mgpu::standard_context_t context;
   mgpu::mem_t<sphere_t> geometry;
+  mgpu::mem_t<float3> img_buffer;
   
-  raytracer_t() {
+  raytracer_t(uint width, uint height) :  img_buffer(width*height, context) {
   }
   
   void draw_scene(uchar3 *image_out, uint width, uint height) {
@@ -171,23 +184,35 @@ struct raytracer_t {
             
       },
       context);
+
+    auto img_buffer_data = img_buffer.data();
+    mgpu::transform([=]MGPU_DEVICE(int index) {
+        img_buffer_data[index] = float3{0,0,0};
+      }, width*height, context);
   
     dim3 grid_dim{width/32 + (width % 32 > 0), height/32 + (height % 32 > 0)};
     dim3 block_dim{32,32};
-    cudaMemset(image_out, 0, width*height*sizeof(uchar3));
 
     for(int ii = 0; ii < 100; ++ii) {
-      ray_trace<<<grid_dim, block_dim>>>(image_out, width, height,
+      ray_trace<<<grid_dim, block_dim>>>(img_buffer.data(), width, height,
                                          ii,
                                          geometry.data(),
                                          geometry.size());
     }
+
+    cudaMemset(image_out, 0, width*height*sizeof(uchar3));
+    float3_to_uchar3<<<grid_dim, block_dim>>>(img_buffer.data(), image_out, width, height);
+    
   }
 };
 
 struct global_state_t {
   simple_interop_t interop;
   raytracer_t raytracer;
+
+  global_state_t(uint width, uint height) :
+    interop(width,height),
+    raytracer(width,height) {}
 };
 
 global_state_t* global_state;
@@ -210,7 +235,7 @@ int main(int argc, char **argv) {
   glutInitWindowSize(2000, 2000);
   glutCreateWindow("Render with CUDA");
 
-  global_state_t main_global_state{simple_interop_t(1000,1000)};
+  global_state_t main_global_state(500,500);
   global_state = &main_global_state;
   
   glutDisplayFunc(render);
