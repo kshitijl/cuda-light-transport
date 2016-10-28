@@ -4,6 +4,13 @@
 
 #include <cuda.h>
 #include "helper_math.h"
+#include "simple-interop.hxx"
+
+#include <memory>
+
+#include <moderngpu/transform.hxx>
+#include <moderngpu/memory.hxx>
+
 
 #include <curand_kernel.h>
 #include <curand_normal.h>
@@ -33,8 +40,9 @@ struct intersection_result_t {
   float3 intersection_point;
   float3 surface_normal;
 };
+using uchar = unsigned char;
 
-struct sphere_t {
+struct sphere_t { 
   float3 center;
   float radius;
   float3 emittance;
@@ -92,17 +100,11 @@ __device__ float3 sample_cosine_weighted_direction(float3 normal, float r1, floa
 
 const __device__ float3 eye{0,0,0};
 
-__global__ void draw_circle(float3 *image, int width, int height, int nsamples) {
-  const int nspheres = 3;
-  const sphere_t spheres[] = { sphere_t{float3{-5, -5, 0.2f}, 2.2, float3{1.0,0.0,0.0}},
-                               sphere_t{float3{-0.5, -0.5, 1.8}, 0.25, float3{0.0,0.0,0.0}},                               
-                               sphere_t{float3{0.1, 0.1, 3}, 1.1, float3{0.0,0.0,0.0}}
-                               
-                             };
-  
+__global__ void ray_trace(uchar3 *image, uint width, uint height,
+                          unsigned int iteration,
+                          const sphere_t* spheres, int nspheres) {
   uint x = blockIdx.x * blockDim.x + threadIdx.x;
   uint y = blockIdx.y * blockDim.y + threadIdx.y;
-  uint sample = blockIdx.z * blockDim.z + threadIdx.z;
 
   if(x < width && y < height) {
     float3 direction = float3{float(x)/width-float(0.5), float(y)/float(height)-float(0.5), 1} - eye;
@@ -126,7 +128,7 @@ __global__ void draw_circle(float3 *image, int width, int height, int nsamples) 
       }
     
       if(best.distance < 1e9) {
-        float2 random_uniforms = gpu_random::uniforms(uint4{x,y,sample,0},
+        float2 random_uniforms = gpu_random::uniforms(uint4{x,y,iteration,0},
                                                       uint2{bounces,0});
         float3 new_dir = sample_cosine_weighted_direction(best.surface_normal,
                                                           random_uniforms.x,
@@ -141,75 +143,78 @@ __global__ void draw_circle(float3 *image, int width, int height, int nsamples) 
       }
     }
 
-    int idx = (y*width + x)*nsamples + sample;
-    image[idx] = accumulator;
+    int idx = (y*width + x);
+
+    uchar3 prev = image[idx];
+
+    image[idx] = uchar3{uchar(100*accumulator.x) + prev.x,
+                        uchar(100*accumulator.y) + prev.y,
+                        uchar(100*accumulator.z) + prev.z};
   }
 }
 
-__global__ void combine_samples_device(float3* images, char* final,
-                                       int w, int h, int niters) {
-  uint x = blockIdx.x * blockDim.x + threadIdx.x;
-  uint y = blockIdx.y * blockDim.y + threadIdx.y;
 
-  if(x < w && y < h) {
-    float3 answer{0,0,0};
-    
-    for(int sample = 0; sample < niters; ++sample) {
-      int idx = (y*w + h)*niters + sample;
-      answer += images[idx];
+struct raytracer_t {
+  mgpu::standard_context_t context;
+  mgpu::mem_t<sphere_t> geometry;
+  
+  raytracer_t() {
+  }
+  
+  void draw_scene(uchar3 *image_out, uint width, uint height) {
+    float tt = float(clock())/CLOCKS_PER_SEC;
+
+    geometry = mgpu::to_mem(std::vector<sphere_t>{
+        sphere_t{float3{-5, -5, 0.2f}, 5.0, float3{0.2,0.0,0.0}},
+          sphere_t{float3{sin(tt), -0.5, 1.8}, 0.25, float3{0.0,0.0,0.0}},                               
+            sphere_t{float3{0.1, 0.1, 3}, 1.1, float3{0.0,0.0,0.0}}
+            
+      },
+      context);
+  
+    dim3 grid_dim{width/32 + (width % 32 > 0), height/32 + (height % 32 > 0)};
+    dim3 block_dim{32,32};
+    cudaMemset(image_out, 0, width*height*sizeof(uchar3));
+
+    for(int ii = 0; ii < 100; ++ii) {
+      ray_trace<<<grid_dim, block_dim>>>(image_out, width, height,
+                                         ii,
+                                         geometry.data(),
+                                         geometry.size());
     }
-
-    answer /= 10;
-    
-    int idx = 3*(y*w + h);
-    final[idx] = answer.x*255;
-    final[idx+1] = answer.y*255;
-    final[idx+2] = answer.z*255;
   }
-}
+};
 
-void write_ppm(const char * filename, int width, int height, char * data) {
-  FILE *fp = fopen(filename, "wb");
-  fprintf(fp, "P6\n%d %d\n255\n", width, height);
-  fwrite(data, width*height*3, 1, fp);
-  fclose(fp);
-}
+struct global_state_t {
+  simple_interop_t interop;
+  raytracer_t raytracer;
+};
 
-void combine_samples(float3* images, char* final, int w, int h, int niters) {
-  dim3 dimBlock(32,32);
-  dim3 dimGrid(w/32 + (w%32 > 0), h/32 + (h%32 > 0));
-  combine_samples_device<<<dimGrid, dimBlock>>>(images, final, w, h, niters);
+global_state_t* global_state;
+
+void render() {
+  unsigned int width = global_state->interop.width, height = global_state->interop.height;
+
+  global_state->interop.cuda_render([=](uchar3 *output) {
+      global_state->raytracer.draw_scene(output, width, height);
+    });
+
+  
+  glFlush();
+  glutPostRedisplay();  
 }
 
 int main(int argc, char **argv) {
-  assert(argc == 2);
-  int niters = std::atoi(argv[1]);
+  glutInit(&argc, argv);
+  glutInitDisplayMode(GLUT_SINGLE | GLUT_RGB);
+  glutInitWindowSize(2000, 2000);
+  glutCreateWindow("Render with CUDA");
+
+  global_state_t main_global_state{simple_interop_t(1000,1000)};
+  global_state = &main_global_state;
   
-  int w=1000,h=1000;
-
-  char *a_h, *a_d;
-  float3 *images;
-
-  int size = w*h*3*sizeof(char);
-  cudaMalloc((void **)&a_d, size);
-  cudaMalloc((void **)&images, w*h*niters*sizeof(float3));
-  
-  a_h = (char *)malloc(size);
-
-  dim3 dimBlock(16,16,4);
-  dim3 dimGrid(w/16 + (w%16 > 0), h/16 + (h%16 > 0),niters/4 + (niters%4>0));
-  cudaMemset(images, 0, size*niters);
-  draw_circle<<<dimGrid, dimBlock>>>(images, w, h, niters);
-
-  combine_samples(images, a_d, w, h, niters);
-  cudaMemcpy(a_h, a_d, size, cudaMemcpyDeviceToHost);
-  cudaDeviceSynchronize();
-
-  write_ppm("circle.ppm", w, h, a_h);
-
-  
-  cudaFree(a_d);
-  free(a_h);
+  glutDisplayFunc(render);
+  glutMainLoop();
 
   return 0;
 }
