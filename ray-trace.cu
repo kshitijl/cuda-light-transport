@@ -51,7 +51,7 @@ struct sphere_t {
   
   __device__ intersection_result_t intersect(const ray_t ray) const {
     float3 op = center-ray.origin; // Solve t^2*d.d + 2*t*(o-p).d + (o-p).(o-p)-R^2 = 0 
-    double t, eps=1e-4, b=dot(op, ray.direction), det=b*b - dot(op,op) + radius*radius;
+    double t, eps=1e-2, b=dot(op, ray.direction), det=b*b - dot(op,op) + radius*radius;
     
     if (det<0) return intersection_result_t{-1}; else det=sqrt(det); 
     double closest = (t=b-det)>eps ? t : ((t=b+det)>eps ? t : -1);
@@ -72,26 +72,11 @@ struct sphere_t {
 };
 
 __device__ float3 sample_cosine_weighted_direction(float3 normal, float r1, float r2) {
-  float theta = acosf(sqrt(1.0-r1));
-  float phi = 2.0 * 3.141592653 * r2;
-
-  float xs = sinf(theta) * cosf(phi);
-  float ys = cosf(theta);
-  float zs = sinf(theta)*sinf(phi);
-
-  float3 y = normal, h = normal;
-  if(fabs(h.x) <= fabs(h.y) && fabs(h.x) <= fabs(h.z))
-    h.x = 1.0;
-  else if (fabs(h.y)<=fabs(h.x) && fabs(h.y) <= fabs(h.z))
-    h.y = 1.0;
-  else
-    h.z = 1.0;
-
-  float3 x = normalize(cross(h,y));
-  float3 z = normalize(cross(x, y));
-
-  float3 dir = xs*x + ys*y + zs*z;
-  return normalize(dir);
+  float p1 = 2*M_PI*r1, p2 = r2, p2s = sqrt(r2);
+  float3 w = normal, u = normalize(cross(fabs(w.x)>.1?float3{0,1} : float3{1}, w)),
+    v = cross(w,u);
+  float3 d = u*cos(p1)*p2s + v * sin(p1)*p2s + w*sqrt(1-p2);
+  return normalize(d);
 }
 
 const __device__ float3 eye{50,52,295.6};
@@ -129,6 +114,10 @@ __global__ void ray_trace(float3 *image, uint width, uint height,
       }
     
       if(best.distance < 1e150) {
+        /*float3 shadow_dir = normalize(spheres[nspheres-1].center - best.intersection_point);
+        
+        
+          accumulator = fmaxf(0, dot(shadow_dir, best.surface_normal))* spheres[best_sphere_i].color; break;*/
         float2 random_uniforms = gpu_random::uniforms(uint4{x,y,sample,0},
                                                       uint2{bounces,0});
         float3 new_dir = sample_cosine_weighted_direction(best.surface_normal,
@@ -194,8 +183,8 @@ struct raytracer_t {
               sphere_t{1e5, float3{50,40.8,-1e5+170}, float3{0,0,0},float3{0,0,0}          },//Frnt 
                 sphere_t{1e5, float3{50, 1e5, 81.6},    float3{0,0,0},float3{.75,.75,.75}},//Botm 
                   sphere_t{1e5, float3{50,-1e5+81.6,81.6},float3{0,0,0},float3{.75,.75,.75}},//Top 
-                    sphere_t{16.5,float3{27,16.5,47},       float3{0,0,0},float3{1,1,1}*.999},//Mirr 
-                      sphere_t{16.5,float3{73,16.5,78},       float3{0,0,0},float3{1,1,1}*.999},//Glas 
+                    sphere_t{16.5,float3{27,16.5,47},       float3{1,1,1},float3{1,1,1}*.999},//Mirr 
+                      sphere_t{16.5,float3{73,16.5,78},       float3{1,1,1},float3{1,1,1}*.999},//Glas 
                         sphere_t{600, float3{50,681.6-.27,81.6},float3{12,12,12},  float3{0,0,0}} //Lite 
       },
       context);
