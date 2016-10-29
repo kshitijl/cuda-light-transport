@@ -133,7 +133,7 @@ __global__ void ray_trace(float3 *image, uint width, uint height,
 
     float3 accumulator{0,0,0}, mask{1,1,1};
 
-    for(uint bounces = 0; bounces < 8; ++bounces) {
+    for(uint bounces = 0; bounces < 3; ++bounces) {
       intersection_result_t best{1e150};
       int best_sphere_i = 0;
     
@@ -221,6 +221,7 @@ struct raytracer_t {
   }
   
   void draw_scene(uchar3 *image_out, uint width, uint height) {
+    frame_number = 0;
     frame_number++;
     float tt = float(clock())/CLOCKS_PER_SEC;
     
@@ -236,7 +237,7 @@ struct raytracer_t {
                   sphere_t{1e5, float3{50,-1e5+81.6,81.6},float3{0,0,0.0},float3{.75,.75,.75}},//Top 
                     sphere_t{16.5,float3{27,16.5,47},       float3{0,0,0},float3{1,1,1}*.999},//Mirr 
                       sphere_t{16.5,float3{73,16.5,78},       float3{0,0,0},float3{1,1,1}*.999},//Glas
- sphere_t{8.5,float3{40, 8.5,99}, float3{4,4,2},float3{1,1,1}*.999},//bulb                         
+                        sphere_t{8.5,float3{40+40*sin(tt), 8.5,99}, float3{4,4,2},float3{1,1,1}*.999},//bulb                         
    //      sphere_t{600, float3{50,681.6-.27,81.6},0*float3{12,12,12},  float3{1,1,1}} //Lite 
       },
       context);
@@ -246,7 +247,7 @@ struct raytracer_t {
         nsamples/4 + (nsamples % 4 > 0)};
     dim3 block_dim{16,16,4};
 
-    ray_trace<<<grid_dim, block_dim>>>(sample_buffer.data(), width, height,
+    ray_trace<<<grid_dim, block_dim>>>(image_buffer.data(), width, height,
                                        nsamples,
                                        frame_number,
                                        camera,
@@ -255,16 +256,16 @@ struct raytracer_t {
 
     int nsamples_local = nsamples;    
 
-    mgpu::segreduce(sample_buffer.data(), width*height*nsamples,
+    /*mgpu::segreduce(sample_buffer.data(), width*height*nsamples,
                     mgpu::make_load_iterator<int>([=]MGPU_DEVICE(int index) {
                         return nsamples_local*index;
                       }),
                     width*height,
                     image_buffer.data(),
                     mgpu::plus_t<float3>(), float3{0,0,0},
-                    context);
+                    context);*/
 
-    auto frame_buffer_data = frame_buffer.data(), image_buffer_data = image_buffer.data();
+    /*auto frame_buffer_data = frame_buffer.data(), image_buffer_data = image_buffer.data();
     int fn = frame_number;
     mgpu::transform([=]MGPU_DEVICE(int index) {
         float3 prev = frame_buffer_data[index];
@@ -275,8 +276,9 @@ struct raytracer_t {
       },
       width*height,
       context);
+    */
 
-    float3_to_uchar3<<<grid_dim, block_dim>>>(frame_buffer.data(), image_out,
+    float3_to_uchar3<<<grid_dim, block_dim>>>(image_buffer.data(), image_out,
                                               width, height);
     
   }
@@ -343,7 +345,7 @@ int main(int argc, char **argv) {
   glutInitWindowSize(2000,2000);
   glutCreateWindow("Render with CUDA");
 
-  global_state_t main_global_state(1000,1000, 5);
+  global_state_t main_global_state(1000,1000, 1);
   global_state = &main_global_state;
   
   glutDisplayFunc(render);
