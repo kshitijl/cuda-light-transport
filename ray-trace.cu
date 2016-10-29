@@ -62,12 +62,15 @@ struct sphere_t {
     float3 point = ray.origin + closest*ray.direction;
     float3 normal = (point - center)/radius;
 
-    if(radius < 100)
-      normal = -normal;
+    // Cornell box has us inside the spheres, so make sure to return a
+    // normal in the appropriate direction: away from the incoming ray
+    
+    if(dot(ray.direction, normal) > 0)
+      normal = -normal; 
     
     return intersection_result_t{closest,
-        point,
-        -normal};
+        point+normal*eps,
+        normal};
   }  
 };
 
@@ -99,7 +102,7 @@ __global__ void ray_trace(float3 *image, uint width, uint height,
 
     float3 accumulator{0,0,0}, mask{1,1,1};
 
-    for(uint bounces = 0; bounces < 2; ++bounces) {
+    for(uint bounces = 0; bounces < 10; ++bounces) {
       intersection_result_t best{1e150};
       int best_sphere_i = 0;
     
@@ -114,10 +117,6 @@ __global__ void ray_trace(float3 *image, uint width, uint height,
       }
     
       if(best.distance < 1e150) {
-        /*float3 shadow_dir = normalize(spheres[nspheres-1].center - best.intersection_point);
-        
-        
-          accumulator = fmaxf(0, dot(shadow_dir, best.surface_normal))* spheres[best_sphere_i].color; break;*/
         float2 random_uniforms = gpu_random::uniforms(uint4{x,y,sample,0},
                                                       uint2{bounces,0});
         float3 new_dir = sample_cosine_weighted_direction(best.surface_normal,
@@ -183,8 +182,8 @@ struct raytracer_t {
               sphere_t{1e5, float3{50,40.8,-1e5+170}, float3{0,0,0},float3{0,0,0}          },//Frnt 
                 sphere_t{1e5, float3{50, 1e5, 81.6},    float3{0,0,0},float3{.75,.75,.75}},//Botm 
                   sphere_t{1e5, float3{50,-1e5+81.6,81.6},float3{0,0,0},float3{.75,.75,.75}},//Top 
-                    sphere_t{16.5,float3{27,16.5,47},       float3{1,1,1},float3{1,1,1}*.999},//Mirr 
-                      sphere_t{16.5,float3{73,16.5,78},       float3{1,1,1},float3{1,1,1}*.999},//Glas 
+                    sphere_t{16.5,float3{27,16.5,47},       float3{0,0,0},float3{1,1,1}*.999},//Mirr 
+                      sphere_t{16.5,float3{73,16.5,78},       float3{0,0,0},float3{1,1,1}*.999},//Glas 
                         sphere_t{600, float3{50,681.6-.27,81.6},float3{12,12,12},  float3{0,0,0}} //Lite 
       },
       context);
@@ -254,16 +253,3 @@ int main(int argc, char **argv) {
 
   return 0;
 }
-/*
-   Ray cam(Vec(50,52,295.6), Vec(0,-0.042612,-1).norm()); // cam pos, dir 
-   Vec cx=Vec(w*.5135/h), cy=(cx%cam.d).norm()*.5135, r, *c=new Vec[w*h]; 
- for (int s=0; s<samps; s++){ 
-             double r1=2*erand48(Xi), dx=r1<1 ? sqrt(r1)-1: 1-sqrt(2-r1); 
-             double r2=2*erand48(Xi), dy=r2<1 ? sqrt(r2)-1: 1-sqrt(2-r2); 
-             Vec d = cx*( ( (sx+.5 + dx)/2 + x)/w - .5) + 
-                     cy*( ( (sy+.5 + dy)/2 + y)/h - .5) + cam.d; 
-             r = r + radiance(Ray(cam.o+d*140,d.norm()),0,Xi)*(1./samps); 
-           } // Camera rays are pushed ^^^^^ forward to start in interior 
-           c[i] = c[i] + Vec(clamp(r.x),clamp(r.y),clamp(r.z))*.25; 
-
-*/
