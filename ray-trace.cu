@@ -29,8 +29,6 @@ namespace gpu_random {
   }
 }
 
-const float tiny = 1e-5;
-
 struct ray_t {
   float3 origin;
   float3 direction;
@@ -44,17 +42,17 @@ struct intersection_result_t {
 using uchar = unsigned char;
 
 struct sphere_t {
-  double radius;  
+  float radius;  
   float3 center;
   float3 emittance;
   float3 color;
   
   __device__ intersection_result_t intersect(const ray_t ray) const {
     float3 op = center-ray.origin; // Solve t^2*d.d + 2*t*(o-p).d + (o-p).(o-p)-R^2 = 0 
-    double t, eps=1e-2, b=dot(op, ray.direction), det=b*b - dot(op,op) + radius*radius;
+    float t, eps=1e-2, b=dot(op, ray.direction), det=b*b - dot(op,op) + radius*radius;
     
     if (det<0) return intersection_result_t{-1}; else det=sqrt(det); 
-    double closest = (t=b-det)>eps ? t : ((t=b+det)>eps ? t : -1);
+    float closest = (t=b-det)>eps ? t : ((t=b+det)>eps ? t : -1);
 
     if(closest < 0)
       return intersection_result_t{-1};
@@ -162,14 +160,14 @@ using uint = unsigned int;
 struct raytracer_t {
   mgpu::standard_context_t context;
   mgpu::mem_t<sphere_t> geometry;
-  mgpu::mem_t<float3> img_buffer, accum_buffer;
+  mgpu::mem_t<float3> sample_buffer, image_buffer;
 
   uint nsamples;
   
   raytracer_t(uint width, uint height, uint nsamples) :
     nsamples(nsamples),
-    img_buffer(width*height*nsamples, context),
-    accum_buffer(width*height, context) {
+    sample_buffer(width*height*nsamples, context),
+    image_buffer(width*height, context) {
   }
   
   void draw_scene(uchar3 *image_out, uint width, uint height) {
@@ -193,24 +191,24 @@ struct raytracer_t {
         nsamples/4 + (nsamples % 4 > 0)};
     dim3 block_dim{16,16,4};
 
-    ray_trace<<<grid_dim, block_dim>>>(img_buffer.data(), width, height,
+    ray_trace<<<grid_dim, block_dim>>>(sample_buffer.data(), width, height,
                                        nsamples,
                                        tt,
                                        geometry.data(),
                                        geometry.size());
 
     int nsamples_local = nsamples;    
-    auto img_buffer_data = img_buffer.data();
-    mgpu::segreduce(img_buffer.data(), width*height*nsamples,
+
+    mgpu::segreduce(sample_buffer.data(), width*height*nsamples,
                     mgpu::make_load_iterator<int>([=]MGPU_DEVICE(int index) {
                         return nsamples_local*index;
                       }),
                     width*height,
-                    accum_buffer.data(),
+                    image_buffer.data(),
                     mgpu::plus_t<float3>(), float3{0,0,0},
                     context);
 
-    float3_to_uchar3<<<grid_dim, block_dim>>>(accum_buffer.data(), image_out,
+    float3_to_uchar3<<<grid_dim, block_dim>>>(image_buffer.data(), image_out,
                                               width, height);
     
   }
