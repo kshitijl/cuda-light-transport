@@ -2,6 +2,44 @@
 
 #include <curand-done-right/curanddr.hxx>
 
+__device__ ray_t generate_camera_ray(const camera_t & camera,
+                                     uint x, uint y, uint width, uint height,
+                                     float rand1, float rand2) {
+  float3 camdir = camera.direction;
+  float3 cx = normalize(cross(float3{0, width*1.0f/height}, -camdir))*camera.zoom
+    , cy = normalize(cross(cx, camdir))*camera.zoom;
+  float3 direction = cx*( (rand1 + x-0.5f)/width - 0.5) +
+    cy * ( (rand2 + 1.0f*y - 0.5)/height - 0.5) + camdir;
+      
+  return ray_t{camera.eye, normalize(direction)};
+}
+
+struct sample_t {
+  uint pixel;  
+  float3 weight;
+  intersection_result_t last_hit;
+};
+
+__device__ int intersect_spheres(const ray_t & ray,
+                                 const sphere_t * spheres, uint nspheres,
+                                 intersection_result_t & result) {
+  intersection_result_t best{1e150};
+  int best_sphere_i = -1;
+    
+  for(int ii = 0; ii < nspheres; ++ii) {
+    auto result = clt_math::intersect(ray, spheres[ii]);
+    if(result.distance > 0) {
+      if(result.distance < best.distance) {
+        best = result;
+        best_sphere_i = ii;
+      }
+    }
+  }
+
+  result = best;
+  return best_sphere_i;
+}
+
 __global__ void sample_paths(float3 *image, uint width, uint height,
                              uint nsamples,
                              uint frame_number,
@@ -14,33 +52,16 @@ __global__ void sample_paths(float3 *image, uint width, uint height,
   if(x < width && y < height) {
     auto rr = curanddr::uniforms<2>(uint3{x,y,sample},
                                     uint2{frame_number,0});
-    float2 ru = float2{rr[0], rr[1]};
-    
-    float3 camdir = camera.direction;;
-    float3 cx = normalize(cross(float3{0, width*1.0f/height}, -camdir))*camera.zoom
-      , cy = normalize(cross(cx, camdir))*camera.zoom;
-    float3 direction = cx*( (ru.x + x-0.5f)/width - 0.5) +
-      cy * ( (ru.y + 1.0f*y - 0.5)/height - 0.5) + camdir;
-      
-    ray_t ray{camera.eye, normalize(direction)};
-
+    auto ray = generate_camera_ray(camera, x, y, width, height,
+                                   rr[0], rr[1]);
+ 
     float3 accumulator{0,0,0}, mask{1,1,1};
 
-    for(uint bounces = 0; bounces < 3; ++bounces) {
-      intersection_result_t best{1e150};
-      int best_sphere_i = 0;
-    
-      for(int ii = 0; ii < nspheres; ++ii) {
-        auto result = clt_math::intersect(ray, spheres[ii]);
-        if(result.distance > 0) {
-          if(result.distance < best.distance) {
-            best = result;
-            best_sphere_i = ii;
-          }
-        }
-      }
-    
-      if(best.distance < 1e150) {
+    for(uint bounces = 0; bounces < 7; ++bounces) {
+      
+      intersection_result_t best;
+      int best_sphere_i = intersect_spheres(ray, spheres, nspheres, best);
+      if(best_sphere_i >= 0) {
         auto rx = curanddr::uniforms<2>(uint3{x,y,sample},
                                         uint2{frame_number, bounces+1});
         float2 random_uniforms = float2{rx[0], rx[1]};
