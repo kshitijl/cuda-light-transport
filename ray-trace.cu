@@ -84,7 +84,7 @@ struct camera_t {
   const float3 forward{0,0.0,8};
   const float left = 0.1;
   
-  float3 eye{50,52,295.6};
+  float3 eye{50,52,210.6};
   float zoom = 0.80;
   float3 original_direction = normalize(float3{0.0,-0.042612,-1});
 
@@ -121,17 +121,19 @@ __global__ void ray_trace(float3 *image, uint width, uint height,
   uint sample = blockIdx.z * blockDim.z + threadIdx.z;
 
   if(x < width && y < height) {
+    float2 ru = gpu_random::uniforms(uint4{x,y,sample,frame_number},
+                                                  uint2{0,1});    
     float3 camdir = camera.direction;;
     float3 cx = normalize(cross(float3{0, width*1.0/height}, -camdir))*camera.zoom
       , cy = normalize(cross(cx, camdir))*camera.zoom;
-    float3 direction = cx*( (1.0f*x)/width - 0.5) +
-      cy * ( (1.0f*y)/height - 0.5) + camdir;
+    float3 direction = cx*( (ru.x + x-0.5f)/width - 0.5) +
+      cy * ( (ru.y + 1.0f*y - 0.5)/height - 0.5) + camdir;
       
     ray_t ray{camera.eye, normalize(direction)};
 
     float3 accumulator{0,0,0}, mask{1,1,1};
 
-    for(uint bounces = 0; bounces < 10; ++bounces) {
+    for(uint bounces = 0; bounces < 8; ++bounces) {
       intersection_result_t best{1e150};
       int best_sphere_i = 0;
     
@@ -226,15 +228,16 @@ struct raytracer_t {
         sphere_t{1e5, float3{-1e5+99,40.8,81.6},float3{0,0,0},float3{.25,.25,.75}},//Rght 
 
         
-        sphere_t{1e5, float3{ 1e5+1,40.8,81.6}, float3{0.1,0,0},float3{.75,.25,.25}},//Left 
+        sphere_t{1e5, float3{ 1e5+1,40.8,81.6}, float3{0.0,0,0},float3{.75,.25,.25}},//Left 
 
             sphere_t{1e5, float3{50,40.8, 1e5},     float3{0,0,0},float3{.75,.75,.75}},//Back 
-              
+              sphere_t{1e5, float3{50,40.8,-1e5+300}, float3{0,0,0},float3{1,1,1}          },//Frnt 
                 sphere_t{1e5, float3{50, 1e5, 81.6},    float3{0,0,0},float3{.75,.75,.75}},//Botm 
-                  sphere_t{1e5, float3{50,-1e5+81.6,81.6},float3{0,0,0.1},float3{.75,.75,.75}},//Top 
+                  sphere_t{1e5, float3{50,-1e5+81.6,81.6},float3{0,0,0.0},float3{.75,.75,.75}},//Top 
                     sphere_t{16.5,float3{27,16.5,47},       float3{0,0,0},float3{1,1,1}*.999},//Mirr 
-                      sphere_t{16.5,float3{73,16.5,78},       float3{0,0,0},float3{1,1,1}*.999},//Glas 
-                        sphere_t{600, float3{50,681.6-.27,81.6},float3{12,12,12},  float3{0,0,0}} //Lite 
+                      sphere_t{16.5,float3{73,16.5,78},       float3{0,0,0},float3{1,1,1}*.999},//Glas
+ sphere_t{8.5,float3{40, 8.5,99}, float3{4,4,2},float3{1,1,1}*.999},//bulb                         
+   //      sphere_t{600, float3{50,681.6-.27,81.6},0*float3{12,12,12},  float3{1,1,1}} //Lite 
       },
       context);
     
@@ -340,7 +343,7 @@ int main(int argc, char **argv) {
   glutInitWindowSize(2000,2000);
   glutCreateWindow("Render with CUDA");
 
-  global_state_t main_global_state(800,800, 5);
+  global_state_t main_global_state(1000,1000, 5);
   global_state = &main_global_state;
   
   glutDisplayFunc(render);
