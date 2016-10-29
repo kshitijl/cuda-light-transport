@@ -80,24 +80,54 @@ __device__ float3 sample_cosine_weighted_direction(float3 normal, float r1, floa
   return normalize(d);
 }
 
-const __device__ float3 eye{50,52,295.6};
-const __device__ float zoom = 0.5135;
+struct camera_t {
+  const float3 forward{0,0.0,8};
+  const float left = 0.1;
+  
+  float3 eye{50,52,295.6};
+  float zoom = 0.80;
+  float3 original_direction = normalize(float3{0.0,-0.042612,-1});
+
+  float3 direction = original_direction;
+
+  float t = 0;
+    
+  void move(float3 way) {
+    eye += way.z*direction;
+  }
+
+  void rotate(float amount) {
+    t += amount;
+    
+    float3 r1{cos(t),  0,  sin(t)};
+    float3 r2{0,       1,  0};
+    float3 r3{-sin(t), 0,  cos(t)};    
+
+    float3 answer = {dot(r1,original_direction),
+                     dot(r2,original_direction),
+                     dot(r3,original_direction)};
+    direction = normalize(answer);
+  }    
+};
+
 
 __global__ void ray_trace(float3 *image, uint width, uint height,
                           uint nsamples,
                           uint frame_number,
+                          camera_t camera,
                           const sphere_t* spheres, int nspheres) {
   uint x = blockIdx.x * blockDim.x + threadIdx.x;
   uint y = blockIdx.y * blockDim.y + threadIdx.y;
   uint sample = blockIdx.z * blockDim.z + threadIdx.z;
 
   if(x < width && y < height) {
-    float3 camdir = normalize(float3{0.0,-0.042612,-1});
-    float3 cx{width*zoom/height}, cy = normalize(cross(cx, camdir))*zoom;
+    float3 camdir = camera.direction;;
+    float3 cx = normalize(cross(float3{0, width*1.0/height}, -camdir))*camera.zoom
+      , cy = normalize(cross(cx, camdir))*camera.zoom;
     float3 direction = cx*( (1.0f*x)/width - 0.5) +
       cy * ( (1.0f*y)/height - 0.5) + camdir;
       
-    ray_t ray{eye + direction*(140), normalize(direction)};
+    ray_t ray{camera.eye, normalize(direction)};
 
     float3 accumulator{0,0,0}, mask{1,1,1};
 
@@ -164,37 +194,44 @@ struct raytracer_t {
   mgpu::mem_t<float3> sample_buffer, image_buffer, frame_buffer;
 
   uint width, height, nsamples;
+
+  uint frame_number = 0;
+
+  camera_t camera;
   
   raytracer_t(uint width, uint height, uint nsamples) :
     width(width), height(height), nsamples(nsamples),
     sample_buffer(width*height*nsamples, context),
     image_buffer(width*height, context),
     frame_buffer(width*height, context) {
-    initialize();    
+    camera_moved();
   }
 
-  void initialize() {
+  void camera_moved() {
     auto frame_buffer_data = frame_buffer.data();
     mgpu::transform([=]MGPU_DEVICE(int index) {
         frame_buffer_data[index] = float3{0,0,0};
       },
       width*height,
       context);
+
+    frame_number = 0;
   }
   
   void draw_scene(uchar3 *image_out, uint width, uint height) {
-    static int frame_number = 1;
-
     frame_number++;
     float tt = float(clock())/CLOCKS_PER_SEC;
     
-    geometry = mgpu::to_mem(std::vector<sphere_t>{//Scene: radius, position, emission, color, material 
-        sphere_t{1e5, float3{ 1e5+1,40.8,81.6}, float3{0,0,0},float3{.75,.25,.25}},//Left 
-          sphere_t{1e5, float3{-1e5+99,40.8,81.6},float3{0,0,0},float3{.25,.25,.75}},//Rght 
+    geometry = mgpu::to_mem(std::vector<sphere_t>{//Scene: radius, position, emission, color, material
+        sphere_t{1e5, float3{-1e5+99,40.8,81.6},float3{0,0,0},float3{.25,.25,.75}},//Rght 
+
+        
+        sphere_t{1e5, float3{ 1e5+1,40.8,81.6}, float3{0.1,0,0},float3{.75,.25,.25}},//Left 
+
             sphere_t{1e5, float3{50,40.8, 1e5},     float3{0,0,0},float3{.75,.75,.75}},//Back 
-              sphere_t{1e5, float3{50,40.8,-1e5+170}, float3{0,0,0},float3{0,0,0}          },//Frnt 
+              
                 sphere_t{1e5, float3{50, 1e5, 81.6},    float3{0,0,0},float3{.75,.75,.75}},//Botm 
-                  sphere_t{1e5, float3{50,-1e5+81.6,81.6},float3{0,0,0},float3{.75,.75,.75}},//Top 
+                  sphere_t{1e5, float3{50,-1e5+81.6,81.6},float3{0,0,0.1},float3{.75,.75,.75}},//Top 
                     sphere_t{16.5,float3{27,16.5,47},       float3{0,0,0},float3{1,1,1}*.999},//Mirr 
                       sphere_t{16.5,float3{73,16.5,78},       float3{0,0,0},float3{1,1,1}*.999},//Glas 
                         sphere_t{600, float3{50,681.6-.27,81.6},float3{12,12,12},  float3{0,0,0}} //Lite 
@@ -209,6 +246,7 @@ struct raytracer_t {
     ray_trace<<<grid_dim, block_dim>>>(sample_buffer.data(), width, height,
                                        nsamples,
                                        frame_number,
+                                       camera,
                                        geometry.data(),
                                        geometry.size());
 
@@ -245,9 +283,9 @@ struct global_state_t {
   simple_interop_t interop;
   raytracer_t raytracer;
 
-  global_state_t(uint width, uint height) :
+  global_state_t(uint width, uint height, uint nsamples) :
     interop(width,height),
-    raytracer(width,height, 6) {}
+    raytracer(width,height, nsamples) {}
 };
 
 global_state_t* global_state;
@@ -264,16 +302,49 @@ void render() {
   glutPostRedisplay();  
 }
 
+void handle_keyboard(int key, int x, int y) {
+  auto & camera = global_state->raytracer.camera;
+  bool moved = true;
+  
+  switch(key) {
+  case GLUT_KEY_UP:
+    camera.move(camera.forward);
+    break;
+
+  case GLUT_KEY_DOWN:
+    camera.move(0-camera.forward);
+    break;
+
+  case GLUT_KEY_LEFT:
+    camera.rotate(camera.left);
+    break;
+
+  case GLUT_KEY_RIGHT:
+    camera.rotate(0-camera.left);
+    break;
+
+  default:
+    moved = false;
+    break;  
+  }
+
+  if(moved)
+    global_state->raytracer.camera_moved();
+  
+  glutPostRedisplay();
+}
+
 int main(int argc, char **argv) {
   glutInit(&argc, argv);
   glutInitDisplayMode(GLUT_SINGLE | GLUT_RGB);
   glutInitWindowSize(2000,2000);
   glutCreateWindow("Render with CUDA");
 
-  global_state_t main_global_state(2000,2000);
+  global_state_t main_global_state(800,800, 5);
   global_state = &main_global_state;
   
   glutDisplayFunc(render);
+  glutSpecialFunc(handle_keyboard);
   glutMainLoop();
 
   return 0;
