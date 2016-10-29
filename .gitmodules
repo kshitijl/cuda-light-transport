@@ -1,3 +1,6 @@
 [submodule "moderngpu"]
 	path = moderngpu
 	url = https://github.com/moderngpu/moderngpu.git
+[submodule "curand-done-right"]
+	path = curand-done-right
+	url = https://github.com/kshitijl/curand-done-right.git
