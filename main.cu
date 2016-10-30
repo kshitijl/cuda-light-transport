@@ -1,8 +1,12 @@
 #include <iostream>
+#include <fstream>
+
 #include <iomanip>
 #include <ctime>
 #include <sstream>
+
 #include <string>
+
 #include <assert.h>
 
 #include "simple-interop.hxx"
@@ -11,6 +15,8 @@
 #include "render.hxx"
 
 #include <GL/freeglut_ext.h>
+
+#include <json.hpp>
 
 struct global_state_t {
   uint width, height;
@@ -99,7 +105,19 @@ void handle_keyboard(uchar key, int x, int y) {
   }
 }
 
+using json = nlohmann::json;
 int main(int argc, char **argv) {
+  std::ifstream infile{"scene"};
+  std::string cc{std::istreambuf_iterator<char>(infile),
+      std::istreambuf_iterator<char>()};
+  auto j = json::parse(cc.c_str());
+
+  for(auto& element : j) {
+    if(element.count("emittance"))
+      std::cout << element["emittance"] << " ";
+    std::cout << element["center"] << "\n";
+  }
+  
   glutInit(&argc, argv);
   glutInitDisplayMode(GLUT_SINGLE | GLUT_RGB);
   glutInitWindowSize(2000,2000);

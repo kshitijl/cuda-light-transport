@@ -4,3 +4,6 @@
 [submodule "curand-done-right"]
 	path = curand-done-right
 	url = https://github.com/kshitijl/curand-done-right.git
+[submodule "json"]
+	path = json
+	url = https://github.com/nlohmann/json.git

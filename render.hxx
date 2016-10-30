@@ -47,7 +47,7 @@ struct raytracer_t {
     float tt = float(clock())/CLOCKS_PER_SEC;
     
     geometry = mgpu::to_mem(std::vector<sphere_t>{//Scene: radius, position, emission, color, material
-        sphere_t{8.5,float3{40+40 * 0.2, 8.5,99}, float3{3,3,3},float3{1,1,1}*.999},//bulb     
+        sphere_t{2.5,float3{40+40 * 0.2, 8.5,99}, 26*float3{3,3,3},float3{1,1,1}*.999},//bulb     
         sphere_t{1e5, float3{-1e5+99,40.8,81.6},float3{0,0,0},float3{.25,.25,.75}},//Rght 
 
         
