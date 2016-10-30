@@ -1,2 +1,2 @@
 #!/bin/bash
-nvcc -std=c++11 main.cu -lGL -lglut -lGLU -I./moderngpu/src --expt-extended-lambda -I./curand-done-right/src -I. -o scene
+nvcc -std=c++11 main.cu -lGL -lglut -lGLU -I./moderngpu/src --expt-extended-lambda -I./curand-done-right/src -I. -o bin/scene

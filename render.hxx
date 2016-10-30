@@ -1,5 +1,7 @@
 #pragma once
 
+#define PROGRESSIVE 1
+
 #include "types.hxx"
 
 #include <moderngpu/kernel_segreduce.hxx>
@@ -13,7 +15,7 @@
 struct raytracer_t {
   mgpu::standard_context_t context;
   mgpu::mem_t<sphere_t> geometry;
-  mgpu::mem_t<float3> sample_buffer, image_buffer, frame_buffer;
+  mgpu::mem_t<float3> sample_buffer, mean_buffer, frame_buffer;
 
   uint width, height, nsamples;
 
@@ -24,7 +26,7 @@ struct raytracer_t {
   raytracer_t(uint width, uint height, uint nsamples) :
     width(width), height(height), nsamples(nsamples),
     sample_buffer(width*height*nsamples, context),
-    image_buffer(width*height, context),
+    mean_buffer(width*height, context),
     frame_buffer(width*height, context) {
     camera_moved();
   }
@@ -41,12 +43,11 @@ struct raytracer_t {
   }
   
   void draw_scene(uchar3 *image_out, uint width, uint height) {
-    frame_number = 0;
     frame_number++;
     float tt = float(clock())/CLOCKS_PER_SEC;
     
     geometry = mgpu::to_mem(std::vector<sphere_t>{//Scene: radius, position, emission, color, material
-        sphere_t{8.5,float3{40+40*sin(tt), 8.5,99}, float3{3,3,3},float3{1,1,1}*.999},//bulb     
+        sphere_t{8.5,float3{40+40 * 0.2, 8.5,99}, float3{3,3,3},float3{1,1,1}*.999},//bulb     
         sphere_t{1e5, float3{-1e5+99,40.8,81.6},float3{0,0,0},float3{.25,.25,.75}},//Rght 
 
         
@@ -69,18 +70,23 @@ struct raytracer_t {
     dim3 block_dim{16,16,4};
 
     sample_paths<<<grid_dim, block_dim>>>(sample_buffer.data(), width, height,
-                                       nsamples,
-                                       frame_number,
-                                       camera,
-                                       geometry.data(),
+                                          nsamples,
+                                          frame_number,
+                                          camera,
+                                          geometry.data(),
                                           geometry.size(),
-      0);
+                                          0);
 
     int nsamples_local = nsamples;    
 
     auto sample_buffer_data = sample_buffer.data();
     auto frame_buffer_data = frame_buffer.data(),
-      image_buffer_data = image_buffer.data();
+      mean_buffer_data = mean_buffer.data();
+
+#ifndef PROGRESSIVE
+    mean_buffer_data = frame_buffer_data;
+    frame_number = 0;
+#endif    
     
     mgpu::transform([=]MGPU_DEVICE(uint index) {
         float3 answer{0,0,0};
@@ -89,18 +95,17 @@ struct raytracer_t {
           answer += sample_buffer_data[nsamples_local*index+ii];
         }
 
-        image_buffer_data[index] = answer;
+        mean_buffer_data[index] = answer;
       },
       width*height,
       context);
         
 #ifdef PROGRESSIVE
-    auto frame_buffer_data = frame_buffer.data(), image_buffer_data = image_buffer.data();
     int fn = frame_number;
     mgpu::transform([=]MGPU_DEVICE(int index) {
         float3 prev = frame_buffer_data[index];
         
-        float3 answer = prev + (image_buffer_data[index] - prev)/fn;
+        float3 answer = prev + (mean_buffer_data[index] - prev)/fn;
 
         frame_buffer_data[index] = answer;
       },
@@ -108,8 +113,7 @@ struct raytracer_t {
       context);
 #endif
 
-    simple_interop::float3_to_uchar3(image_buffer.data(), image_out, width, height);
-    
+    simple_interop::float3_to_uchar3(frame_buffer.data(), image_out, width, height);
   }
 };
 

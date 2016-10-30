@@ -78,7 +78,7 @@ __global__ void sample_paths(float3 *image, uint width, uint height,
       }        
     };
     
-    mgpu::iterate<3>([&](uint index) {
+    mgpu::iterate<7>([&](uint index) {
         intersection_result_t best;
         int best_sphere_i = intersect_spheres(ray, spheres, nspheres, best);
     
