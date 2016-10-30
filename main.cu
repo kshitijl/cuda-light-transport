@@ -66,7 +66,7 @@ int main(int argc, char **argv) {
   glutInitWindowSize(2000,2000);
   glutCreateWindow("Render with CUDA");
 
-  global_state_t main_global_state(1000,1000, 8);
+  global_state_t main_global_state(1000,1000, 4);
   global_state = &main_global_state;
   
   glutDisplayFunc(render);

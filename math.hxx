@@ -5,7 +5,18 @@
 
 namespace clt_math {
 
-  __device__ float3 sample_cosine_weighted_direction(float3 normal, float r1, float r2) {
+  __device__ float3 sample_point_on_sphere(const sphere_t & sphere,
+                                           float r1, float r2) {
+    float azimuthal = 2*M_PI*r1;
+    float zenith = asinf(sqrtf(r2));
+
+    float3 sample{sinf(zenith)*cosf(azimuthal),
+        sinf(zenith)*sinf(azimuthal),
+        cosf(zenith)};
+    return sphere.center + sphere.radius*sample;
+  }
+
+  __device__ float3 sample_uniform_direction(float3 normal, float r1, float r2) {
     float p1 = 2*M_PI*r1, p2 = r2, p2s = sqrt(r2);
     float3 w = normal, u = normalize(cross(fabs(w.x)>.1?float3{0,1} : float3{1}, w)),
       v = cross(w,u);

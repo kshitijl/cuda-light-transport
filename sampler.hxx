@@ -44,43 +44,61 @@ __global__ void sample_paths(float3 *image, uint width, uint height,
                              uint nsamples,
                              uint frame_number,
                              camera_t camera,
-                             const sphere_t* spheres, int nspheres) {
+                             const sphere_t* spheres, int nspheres,
+                             uint light_id) {
   uint x = blockIdx.x * blockDim.x + threadIdx.x;
   uint y = blockIdx.y * blockDim.y + threadIdx.y;
   uint sample = blockIdx.z * blockDim.z + threadIdx.z;
 
   if(x < width && y < height) {
-    auto rr = curanddr::uniforms<2>(uint3{x,y,sample},
+    auto rr = curanddr::uniforms<4>(uint3{x,y,sample},
                                     uint2{frame_number,0});
     auto ray = generate_camera_ray(camera, x, y, width, height,
                                    rr[0], rr[1]);
  
     float3 accumulator{0,0,0}, mask{1,1,1};
 
-    for(uint bounces = 0; bounces < 7; ++bounces) {
+    auto direct_illumination = [&](intersection_result_t from,
+                                   float rand1, float rand2) {
+      float3 light_point = clt_math::sample_point_on_sphere(spheres[light_id],
+                                                            rand1, rand2);
+      float3 new_dir = light_point - from.intersection_point;
       
-      intersection_result_t best;
-      int best_sphere_i = intersect_spheres(ray, spheres, nspheres, best);
-      if(best_sphere_i >= 0) {
-        auto rx = curanddr::uniforms<2>(uint3{x,y,sample},
-                                        uint2{frame_number, bounces+1});
-        float2 random_uniforms = float2{rx[0], rx[1]};
-        
-        float3 new_dir = clt_math::sample_cosine_weighted_direction(best.surface_normal,
-                                                                    random_uniforms.x,
-                                                                    random_uniforms.y);
-        ray = ray_t{best.intersection_point, new_dir};
+      ray_t shadow_ray{from.intersection_point, normalize(new_dir)};
 
-        accumulator += mask*spheres[best_sphere_i].emittance;
-        mask *= spheres[best_sphere_i].color;
+      intersection_result_t ir;
+      if(intersect_spheres(shadow_ray, spheres, nspheres, ir) == light_id) {
+        // subtended angle weight
+        float d= ir.distance, r = spheres[light_id].radius;
+        float weight = 1 - sqrt(fmaxf(0,d*d - r*r))/d;
+        return spheres[light_id].emittance * weight;;
       }
       else {
-        break;
-      }
-    }
+        return float3{0,0,0};
+      }        
+    };
+    
+    mgpu::iterate<3>([&](uint index) {
+        intersection_result_t best;
+        int best_sphere_i = intersect_spheres(ray, spheres, nspheres, best);
+    
+        if(best_sphere_i >= 0) {
+          mask *= spheres[best_sphere_i].color;
 
+          auto randoms = curanddr::uniforms<4>(uint3{x,y,sample},
+                                               uint2{frame_number,index+1});
+          accumulator += mask*direct_illumination(best,
+                                                  randoms[0], randoms[1]);
+
+          float3 new_dir = clt_math::sample_uniform_direction(best.surface_normal,
+                                                              randoms[2], randoms[3]);
+          
+          ray = ray_t{best.intersection_point, normalize(new_dir)};
+        }
+      });
+        
+    
     int idx = (y*width + x)*nsamples + sample;
-
     image[idx] = accumulator/nsamples;
   }
 }
