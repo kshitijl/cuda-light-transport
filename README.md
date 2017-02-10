@@ -10,4 +10,10 @@ power.
 
 # Renders
 
+## Diffuse lighting and inter-reflections
+
 ![render 1](./renders/30-10-16-01-21-38.png)
+
+## Sampling is noisy
+
+![render 2](./renders/30-10-16-01-27-01.png)
