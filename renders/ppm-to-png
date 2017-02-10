@@ -1,0 +1,2 @@
+for ii in $(ls *.ppm); do convert -flip $ii $(basename $ii .ppm).png; done
+rm *.ppm
