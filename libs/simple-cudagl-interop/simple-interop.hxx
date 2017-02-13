@@ -9,8 +9,6 @@
 
 #include <functional>
 
-#include "helper_math.h"
-
 namespace simple_interop {
 
   struct simple_interop_t {
@@ -96,7 +94,8 @@ namespace simple_interop {
 
   /* Gamma-transformed float3 -> RGB8 */
   __device__ unsigned char to_uchar(float x) {
-    return 255*pow(clamp(x, 0.0f, 1.0f), 1/2.2) + 0.5;
+    float clamped = fmaxf(0.0, fminf(x, 1.0));
+    return 255*pow(clamped, 1/2.2) + 0.5;
   }
 
   __global__ void float3_to_uchar3_kernel(float3* img_in, uchar3* img_out,

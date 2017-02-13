@@ -20,7 +20,7 @@
 
 using json = nlohmann::json;
 int main(int argc, char **argv) {
-  std::ifstream infile{"scene"};
+  std::ifstream infile{argv[1]};
   std::string cc{std::istreambuf_iterator<char>(infile),
       std::istreambuf_iterator<char>()};
   auto j = json::parse(cc.c_str());

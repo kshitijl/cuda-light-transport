@@ -1,6 +1,6 @@
 #!/bin/bash
 NVCC="nvcc --expt-extended-lambda -std=c++11 -Wno-deprecated-gpu-targets"
-INCLUDES="-Ilibs/moderngpu/src -Ilibs/curand-done-right/src -I. -Ilibs/json/src"
+INCLUDES="-Ilibs/moderngpu/src -Ilibs/curand-done-right/src -Isrc -Ilibs/json/src -Ilibs/simple-cudagl-interop"
 OPENGL_LIBS="-lGL -lglut -lGLU"
 
-$NVCC main.cu -o bin/scene $OPENGL_LIBS $INCLUDES
+$NVCC src/main.cu -o bin/scene $OPENGL_LIBS $INCLUDES

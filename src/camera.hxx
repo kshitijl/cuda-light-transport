@@ -1,6 +1,6 @@
 #pragma once
 
-#include "math.hxx"
+#include <math/math.hxx>
 
 struct camera_t {
   const float3 forward{0,0.0,8};
