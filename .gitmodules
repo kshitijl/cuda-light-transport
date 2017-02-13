@@ -1,9 +1,9 @@
 [submodule "moderngpu"]
-	path = moderngpu
+	path = libs/moderngpu
 	url = https://github.com/moderngpu/moderngpu.git
 [submodule "curand-done-right"]
-	path = curand-done-right
+	path = libs/curand-done-right
 	url = https://github.com/kshitijl/curand-done-right.git
 [submodule "json"]
-	path = json
+	path = libs/json
 	url = https://github.com/nlohmann/json.git
