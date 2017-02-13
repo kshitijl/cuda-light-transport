@@ -51,8 +51,8 @@ __global__ void sample_paths(float3 *image, uint width, uint height,
   uint sample = blockIdx.z * blockDim.z + threadIdx.z;
 
   if(x < width && y < height) {
-    auto rr = curanddr::uniforms<4>(uint3{x,y,sample},
-                                    uint2{frame_number,0});
+    auto rr = curanddr::uniforms<4>(uint4{x,y,sample, frame_number},
+                                    0);
     auto ray = generate_camera_ray(camera, x, y, width, height,
                                    rr[0], rr[1]);
  
@@ -85,8 +85,8 @@ __global__ void sample_paths(float3 *image, uint width, uint height,
         if(best_sphere_i >= 0) {
           mask *= spheres[best_sphere_i].color;
 
-          auto randoms = curanddr::uniforms<4>(uint3{x,y,sample},
-                                               uint2{frame_number,index+1});
+          auto randoms = curanddr::uniforms<4>(uint4{x, y, sample, frame_number},
+                                               index+1);
           accumulator += mask*direct_illumination(best,
                                                   randoms[0], randoms[1]);
 
